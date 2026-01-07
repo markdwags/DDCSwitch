@@ -26,8 +26,8 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
-      - name: Restore dependencies
-        run: dotnet restore DDCSwitch/DDCSwitch.csproj
+      - name: Restore dependencies with runtime
+        run: dotnet restore DDCSwitch/DDCSwitch.csproj -r win-x64
 
       - name: Build NativeAOT Release
         run: dotnet publish DDCSwitch/DDCSwitch.csproj -c Release -r win-x64 --no-restore
