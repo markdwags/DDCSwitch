@@ -45,8 +45,6 @@ The project is pre-configured with NativeAOT (`<PublishAot>true</PublishAot>`), 
 
 Executable location: `DDCSwitch/bin/Release/net10.0/win-x64/publish/DDCSwitch.exe`
 
-> **Note:** First build may take 2-5 minutes for AOT compilation. Subsequent builds are faster.
-
 ## Usage
 
 ### List Monitors
