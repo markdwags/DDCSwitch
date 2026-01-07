@@ -2,6 +2,12 @@
 
 All notable changes to DDCSwitch will be documented in this file.
 
+## [1.0.1] - 2026-01-07
+
+### Added
+
+- `version` command to display current version information
+
 ## [1.0.0] - 2026-01-07
 
 ### Initial Release

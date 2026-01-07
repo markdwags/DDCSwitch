@@ -1,5 +1,11 @@
 ﻿# DDCSwitch
 
+[![GitHub Release](https://img.shields.io/github/v/release/markdwags/DDCSwitch)](https://github.com/markdwags/DDCSwitch/releases)
+[![License](https://img.shields.io/github/license/markdwags/DDCSwitch)](https://github.com/markdwags/DDCSwitch/blob/main/LICENSE)
+[![Platform](https://img.shields.io/badge/platform-Windows-blue)](https://github.com/markdwags/DDCSwitch)
+[![.NET](https://img.shields.io/badge/.NET-10.0-512BD4)](https://dotnet.microsoft.com/)
+[![JSON Output](https://img.shields.io/badge/JSON-Output%20Support-green)](https://github.com/markdwags/DDCSwitch#json-output-for-automation)
+
 A Windows command-line utility to control monitor input sources via DDC/CI (Display Data Channel Command Interface). Switch between HDMI, DisplayPort, DVI, and VGA inputs without touching physical buttons.
 
 📚 **[Examples](EXAMPLES.md)** | 📝 **[Changelog](CHANGELOG.md)**
@@ -9,6 +15,7 @@ A Windows command-line utility to control monitor input sources via DDC/CI (Disp
 - 🖥️ **List all DDC/CI capable monitors** with their current input sources
 - 🔄 **Switch monitor inputs** programmatically (HDMI, DisplayPort, DVI, VGA, etc.)
 - 🎯 **Simple CLI interface** perfect for scripts, shortcuts, and hotkeys
+- 📊 **JSON output support** - Machine-readable output for automation and integration
 - ⚡ **Fast and lightweight** - NativeAOT compiled for instant startup
 - 📦 **True native executable** - No .NET runtime dependency required
 - 🪟 **Windows-only** - uses native Windows DDC/CI APIs (use ddcutil on Linux)
@@ -29,7 +36,7 @@ Download the latest release from the [Releases](../../releases) page and extract
 **Build:**
 
 ```powershell
-git clone https://github.com/yourusername/DDCSwitch.git
+git clone https://github.com/markdwags/DDCSwitch.git
 cd DDCSwitch
 dotnet publish -c Release
 ```

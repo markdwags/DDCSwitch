@@ -42,6 +42,7 @@ static class DDCSwitchProgram
                 "list" or "ls" => ListMonitors(jsonOutput),
                 "get" => GetCurrentInput(filteredArgs, jsonOutput),
                 "set" => SetInput(filteredArgs, jsonOutput),
+                "version" or "-v" or "--version" => ShowVersion(jsonOutput),
                 "help" or "-h" or "--help" or "/?" => ShowUsage(),
                 _ => InvalidCommand(filteredArgs[0], jsonOutput)
             };
@@ -57,14 +58,42 @@ static class DDCSwitchProgram
             {
                 AnsiConsole.MarkupLine($"[red]Error:[/] {ex.Message}");
             }
+
             return 1;
         }
     }
 
+    private static string GetVersion()
+    {
+        var version = typeof(DDCSwitchProgram).Assembly
+            .GetName().Version?.ToString(3) ?? "0.0.0";
+        return version;
+    }
+
+    private static int ShowVersion(bool jsonOutput)
+    {
+        var version = GetVersion();
+
+        if (jsonOutput)
+        {
+            Console.WriteLine($"{{\"version\":\"{version}\"}}");
+        }
+        else
+        {
+            AnsiConsole.Write(new FigletText("DDCSwitch").Color(Color.Blue));
+            AnsiConsole.MarkupLine($"[bold]Version:[/] [green]{version}[/]");
+            AnsiConsole.MarkupLine("[dim]Windows DDC/CI Monitor Input Switcher[/]");
+        }
+
+        return 0;
+    }
+
     private static int ShowUsage()
     {
+        var version = GetVersion();
+
         AnsiConsole.Write(new FigletText("DDCSwitch").Color(Color.Blue));
-        AnsiConsole.MarkupLine("[dim]Windows DDC/CI Monitor Input Switcher[/]\n");
+        AnsiConsole.MarkupLine($"[dim]Windows DDC/CI Monitor Input Switcher v{version}[/]\n");
 
         var table = new Table()
             .Border(TableBorder.Rounded)
@@ -86,6 +115,11 @@ static class DDCSwitchProgram
             "[yellow]set[/] <monitor> <input>",
             "Set input source for a monitor",
             "[dim]DDCSwitch set 0 HDMI1[/]");
+
+        table.AddRow(
+            "[yellow]version[/] or [yellow]-v[/]",
+            "Display version information",
+            "[dim]DDCSwitch version[/]");
 
         AnsiConsole.Write(table);
 
@@ -109,256 +143,143 @@ static class DDCSwitchProgram
             AnsiConsole.MarkupLine($"[red]Unknown command:[/] {command}");
             AnsiConsole.MarkupLine("Run [yellow]DDCSwitch help[/] for usage information.");
         }
+
         return 1;
     }
 
     private static int ListMonitors(bool jsonOutput)
-{
-    if (!jsonOutput)
     {
-        AnsiConsole.Status()
-            .Start("Enumerating monitors...", ctx =>
+        if (!jsonOutput)
+        {
+            AnsiConsole.Status()
+                .Start("Enumerating monitors...", ctx =>
+                {
+                    ctx.Spinner(Spinner.Known.Dots);
+                    Thread.Sleep(100); // Brief pause for visual feedback
+                });
+        }
+
+        var monitors = MonitorController.EnumerateMonitors();
+
+        if (monitors.Count == 0)
+        {
+            if (jsonOutput)
             {
-                ctx.Spinner(Spinner.Known.Dots);
-                Thread.Sleep(100); // Brief pause for visual feedback
-            });
-    }
+                var result = new ListMonitorsResponse(false, null, "No DDC/CI capable monitors found");
+                Console.WriteLine(JsonSerializer.Serialize(result, JsonContext.Default.ListMonitorsResponse));
+            }
+            else
+            {
+                AnsiConsole.MarkupLine("[yellow]No DDC/CI capable monitors found.[/]");
+            }
 
-    var monitors = MonitorController.EnumerateMonitors();
+            return 1;
+        }
 
-    if (monitors.Count == 0)
-    {
         if (jsonOutput)
         {
-            var result = new ListMonitorsResponse(false, null, "No DDC/CI capable monitors found");
+            var monitorList = monitors.Select(monitor =>
+            {
+                string? inputName = null;
+                uint? inputCode = null;
+                string status = "ok";
+
+                try
+                {
+                    if (monitor.TryGetInputSource(out uint current, out uint max))
+                    {
+                        inputName = InputSource.GetName(current);
+                        inputCode = current;
+                    }
+                    else
+                    {
+                        status = "no_ddc_ci";
+                    }
+                }
+                catch
+                {
+                    status = "error";
+                }
+
+                return new MonitorInfo(
+                    monitor.Index,
+                    monitor.Name,
+                    monitor.DeviceName,
+                    monitor.IsPrimary,
+                    inputName,
+                    inputCode != null ? $"0x{inputCode:X2}" : null,
+                    status);
+            }).ToList();
+
+            var result = new ListMonitorsResponse(true, monitorList);
             Console.WriteLine(JsonSerializer.Serialize(result, JsonContext.Default.ListMonitorsResponse));
         }
         else
         {
-            AnsiConsole.MarkupLine("[yellow]No DDC/CI capable monitors found.[/]");
+            var table = new Table()
+                .Border(TableBorder.Rounded)
+                .AddColumn("Index")
+                .AddColumn("Monitor Name")
+                .AddColumn("Device")
+                .AddColumn("Current Input")
+                .AddColumn("Status");
+
+            foreach (var monitor in monitors)
+            {
+                string inputInfo = "N/A";
+                string status = "[green]OK[/]";
+
+                try
+                {
+                    if (monitor.TryGetInputSource(out uint current, out uint max))
+                    {
+                        inputInfo = $"{InputSource.GetName(current)} (0x{current:X2})";
+                    }
+                    else
+                    {
+                        status = "[yellow]No DDC/CI[/]";
+                    }
+                }
+                catch
+                {
+                    status = "[red]Error[/]";
+                }
+
+                table.AddRow(
+                    monitor.IsPrimary ? $"{monitor.Index} [yellow]*[/]" : monitor.Index.ToString(),
+                    monitor.Name,
+                    monitor.DeviceName,
+                    inputInfo,
+                    status);
+            }
+
+            AnsiConsole.Write(table);
         }
-        return 1;
-    }
 
-    if (jsonOutput)
-    {
-        var monitorList = monitors.Select(monitor =>
-        {
-            string? inputName = null;
-            uint? inputCode = null;
-            string status = "ok";
-
-            try
-            {
-                if (monitor.TryGetInputSource(out uint current, out uint max))
-                {
-                    inputName = InputSource.GetName(current);
-                    inputCode = current;
-                }
-                else
-                {
-                    status = "no_ddc_ci";
-                }
-            }
-            catch
-            {
-                status = "error";
-            }
-
-            return new MonitorInfo(
-                monitor.Index,
-                monitor.Name,
-                monitor.DeviceName,
-                monitor.IsPrimary,
-                inputName,
-                inputCode != null ? $"0x{inputCode:X2}" : null,
-                status);
-        }).ToList();
-
-        var result = new ListMonitorsResponse(true, monitorList);
-        Console.WriteLine(JsonSerializer.Serialize(result, JsonContext.Default.ListMonitorsResponse));
-    }
-    else
-    {
-        var table = new Table()
-            .Border(TableBorder.Rounded)
-            .AddColumn("Index")
-            .AddColumn("Monitor Name")
-            .AddColumn("Device")
-            .AddColumn("Current Input")
-            .AddColumn("Status");
-
+        // Cleanup
         foreach (var monitor in monitors)
         {
-            string inputInfo = "N/A";
-            string status = "[green]OK[/]";
-
-            try
-            {
-                if (monitor.TryGetInputSource(out uint current, out uint max))
-                {
-                    inputInfo = $"{InputSource.GetName(current)} (0x{current:X2})";
-                }
-                else
-                {
-                    status = "[yellow]No DDC/CI[/]";
-                }
-            }
-            catch
-            {
-                status = "[red]Error[/]";
-            }
-
-            table.AddRow(
-                monitor.IsPrimary ? $"{monitor.Index} [yellow]*[/]" : monitor.Index.ToString(),
-                monitor.Name,
-                monitor.DeviceName,
-                inputInfo,
-                status);
+            monitor.Dispose();
         }
 
-        AnsiConsole.Write(table);
-    }
-
-    // Cleanup
-    foreach (var monitor in monitors)
-    {
-        monitor.Dispose();
-    }
-
-    return 0;
+        return 0;
     }
 
     private static int GetCurrentInput(string[] args, bool jsonOutput)
-{
-    if (args.Length < 2)
     {
-        if (jsonOutput)
-        {
-            var error = new ErrorResponse(false, "Monitor identifier required");
-            Console.WriteLine(JsonSerializer.Serialize(error, JsonContext.Default.ErrorResponse));
-        }
-        else
-        {
-            AnsiConsole.MarkupLine("[red]Error:[/] Monitor identifier required.");
-            AnsiConsole.MarkupLine("Usage: [yellow]DDCSwitch get <monitor>[/]");
-        }
-        return 1;
-    }
-
-    var monitors = MonitorController.EnumerateMonitors();
-
-    if (monitors.Count == 0)
-    {
-        if (jsonOutput)
-        {
-            var error = new ErrorResponse(false, "No DDC/CI capable monitors found");
-            Console.WriteLine(JsonSerializer.Serialize(error, JsonContext.Default.ErrorResponse));
-        }
-        else
-        {
-            AnsiConsole.MarkupLine("[red]Error:[/] No DDC/CI capable monitors found.");
-        }
-        return 1;
-    }
-
-    var monitor = MonitorController.FindMonitor(monitors, args[1]);
-
-    if (monitor == null)
-    {
-        if (jsonOutput)
-        {
-            var error = new ErrorResponse(false, $"Monitor '{args[1]}' not found");
-            Console.WriteLine(JsonSerializer.Serialize(error, JsonContext.Default.ErrorResponse));
-        }
-        else
-        {
-            AnsiConsole.MarkupLine($"[red]Error:[/] Monitor '{args[1]}' not found.");
-            AnsiConsole.MarkupLine("Use [yellow]DDCSwitch list[/] to see available monitors.");
-        }
-
-        // Cleanup
-        foreach (var m in monitors)
-        {
-            m.Dispose();
-        }
-
-        return 1;
-    }
-
-    if (!monitor.TryGetInputSource(out uint current, out uint max))
-    {
-        if (jsonOutput)
-        {
-            var monitorRef = new MonitorReference(monitor.Index, monitor.Name, monitor.DeviceName, monitor.IsPrimary);
-            var error = new ErrorResponse(false, $"Failed to get input source from monitor '{monitor.Name}'", monitorRef);
-            Console.WriteLine(JsonSerializer.Serialize(error, JsonContext.Default.ErrorResponse));
-        }
-        else
-        {
-            AnsiConsole.MarkupLine($"[red]Error:[/] Failed to get input source from monitor '{monitor.Name}'.");
-            AnsiConsole.MarkupLine("The monitor may not support DDC/CI or requires administrator privileges.");
-        }
-
-        // Cleanup
-        foreach (var m in monitors)
-        {
-            m.Dispose();
-        }
-
-        return 1;
-    }
-
-    if (jsonOutput)
-    {
-        var monitorRef = new MonitorReference(monitor.Index, monitor.Name, monitor.DeviceName, monitor.IsPrimary);
-        var result = new GetInputResponse(true, monitorRef, InputSource.GetName(current), $"0x{current:X2}", max);
-        Console.WriteLine(JsonSerializer.Serialize(result, JsonContext.Default.GetInputResponse));
-    }
-    else
-    {
-        AnsiConsole.MarkupLine($"[green]Monitor:[/] {monitor.Name} ({monitor.DeviceName})");
-        AnsiConsole.MarkupLine($"[green]Current Input:[/] {InputSource.GetName(current)} (0x{current:X2})");
-    }
-
-    // Cleanup
-    foreach (var m in monitors)
-    {
-        m.Dispose();
-    }
-
-    return 0;
-    }
-
-    private static int SetInput(string[] args, bool jsonOutput)
-    {
-        if (args.Length < 3)
+        if (args.Length < 2)
         {
             if (jsonOutput)
             {
-                var error = new ErrorResponse(false, "Monitor and input source required");
+                var error = new ErrorResponse(false, "Monitor identifier required");
                 Console.WriteLine(JsonSerializer.Serialize(error, JsonContext.Default.ErrorResponse));
             }
             else
             {
-                AnsiConsole.MarkupLine("[red]Error:[/] Monitor and input source required.");
-                AnsiConsole.MarkupLine("Usage: [yellow]DDCSwitch set <monitor> <input>[/]");
+                AnsiConsole.MarkupLine("[red]Error:[/] Monitor identifier required.");
+                AnsiConsole.MarkupLine("Usage: [yellow]DDCSwitch get <monitor>[/]");
             }
-            return 1;
-        }
 
-        if (!InputSource.TryParse(args[2], out uint inputValue))
-        {
-            if (jsonOutput)
-            {
-                var error = new ErrorResponse(false, $"Invalid input source '{args[2]}'");
-                Console.WriteLine(JsonSerializer.Serialize(error, JsonContext.Default.ErrorResponse));
-            }
-            else
-            {
-                AnsiConsole.MarkupLine($"[red]Error:[/] Invalid input source '{args[2]}'.");
-                AnsiConsole.MarkupLine("Valid inputs: HDMI1, HDMI2, DP1, DP2, DVI1, DVI2, VGA1, VGA2, or hex code (0x11)");
-            }
             return 1;
         }
 
@@ -375,6 +296,129 @@ static class DDCSwitchProgram
             {
                 AnsiConsole.MarkupLine("[red]Error:[/] No DDC/CI capable monitors found.");
             }
+
+            return 1;
+        }
+
+        var monitor = MonitorController.FindMonitor(monitors, args[1]);
+
+        if (monitor == null)
+        {
+            if (jsonOutput)
+            {
+                var error = new ErrorResponse(false, $"Monitor '{args[1]}' not found");
+                Console.WriteLine(JsonSerializer.Serialize(error, JsonContext.Default.ErrorResponse));
+            }
+            else
+            {
+                AnsiConsole.MarkupLine($"[red]Error:[/] Monitor '{args[1]}' not found.");
+                AnsiConsole.MarkupLine("Use [yellow]DDCSwitch list[/] to see available monitors.");
+            }
+
+            // Cleanup
+            foreach (var m in monitors)
+            {
+                m.Dispose();
+            }
+
+            return 1;
+        }
+
+        if (!monitor.TryGetInputSource(out uint current, out uint max))
+        {
+            if (jsonOutput)
+            {
+                var monitorRef =
+                    new MonitorReference(monitor.Index, monitor.Name, monitor.DeviceName, monitor.IsPrimary);
+                var error = new ErrorResponse(false, $"Failed to get input source from monitor '{monitor.Name}'",
+                    monitorRef);
+                Console.WriteLine(JsonSerializer.Serialize(error, JsonContext.Default.ErrorResponse));
+            }
+            else
+            {
+                AnsiConsole.MarkupLine($"[red]Error:[/] Failed to get input source from monitor '{monitor.Name}'.");
+                AnsiConsole.MarkupLine("The monitor may not support DDC/CI or requires administrator privileges.");
+            }
+
+            // Cleanup
+            foreach (var m in monitors)
+            {
+                m.Dispose();
+            }
+
+            return 1;
+        }
+
+        if (jsonOutput)
+        {
+            var monitorRef = new MonitorReference(monitor.Index, monitor.Name, monitor.DeviceName, monitor.IsPrimary);
+            var result = new GetInputResponse(true, monitorRef, InputSource.GetName(current), $"0x{current:X2}", max);
+            Console.WriteLine(JsonSerializer.Serialize(result, JsonContext.Default.GetInputResponse));
+        }
+        else
+        {
+            AnsiConsole.MarkupLine($"[green]Monitor:[/] {monitor.Name} ({monitor.DeviceName})");
+            AnsiConsole.MarkupLine($"[green]Current Input:[/] {InputSource.GetName(current)} (0x{current:X2})");
+        }
+
+        // Cleanup
+        foreach (var m in monitors)
+        {
+            m.Dispose();
+        }
+
+        return 0;
+    }
+
+    private static int SetInput(string[] args, bool jsonOutput)
+    {
+        if (args.Length < 3)
+        {
+            if (jsonOutput)
+            {
+                var error = new ErrorResponse(false, "Monitor and input source required");
+                Console.WriteLine(JsonSerializer.Serialize(error, JsonContext.Default.ErrorResponse));
+            }
+            else
+            {
+                AnsiConsole.MarkupLine("[red]Error:[/] Monitor and input source required.");
+                AnsiConsole.MarkupLine("Usage: [yellow]DDCSwitch set <monitor> <input>[/]");
+            }
+
+            return 1;
+        }
+
+        if (!InputSource.TryParse(args[2], out uint inputValue))
+        {
+            if (jsonOutput)
+            {
+                var error = new ErrorResponse(false, $"Invalid input source '{args[2]}'");
+                Console.WriteLine(JsonSerializer.Serialize(error, JsonContext.Default.ErrorResponse));
+            }
+            else
+            {
+                AnsiConsole.MarkupLine($"[red]Error:[/] Invalid input source '{args[2]}'.");
+                AnsiConsole.MarkupLine(
+                    "Valid inputs: HDMI1, HDMI2, DP1, DP2, DVI1, DVI2, VGA1, VGA2, or hex code (0x11)");
+            }
+
+            return 1;
+        }
+
+        var monitors = MonitorController.EnumerateMonitors();
+
+        if (monitors.Count == 0)
+        {
+            if (jsonOutput)
+            {
+                var error = new ErrorResponse(false, "No DDC/CI capable monitors found");
+                Console.WriteLine(JsonSerializer.Serialize(error, JsonContext.Default.ErrorResponse));
+            }
+            else
+            {
+                AnsiConsole.MarkupLine("[red]Error:[/] No DDC/CI capable monitors found.");
+            }
+
             return 1;
         }
 
@@ -414,7 +458,8 @@ static class DDCSwitchProgram
 
                     if (!monitor.TrySetInputSource(inputValue))
                     {
-                        errorMsg = $"Failed to set input source on monitor '{monitor.Name}'. The monitor may not support this input or requires administrator privileges.";
+                        errorMsg =
+                            $"Failed to set input source on monitor '{monitor.Name}'. The monitor may not support this input or requires administrator privileges.";
                     }
                     else
                     {
@@ -441,7 +486,8 @@ static class DDCSwitchProgram
         {
             if (jsonOutput)
             {
-                var monitorRef = new MonitorReference(monitor.Index, monitor.Name, monitor.DeviceName, monitor.IsPrimary);
+                var monitorRef =
+                    new MonitorReference(monitor.Index, monitor.Name, monitor.DeviceName, monitor.IsPrimary);
                 var error = new ErrorResponse(false, errorMsg!, monitorRef);
                 Console.WriteLine(JsonSerializer.Serialize(error, JsonContext.Default.ErrorResponse));
             }
@@ -467,7 +513,8 @@ static class DDCSwitchProgram
         }
         else
         {
-            AnsiConsole.MarkupLine($"[green]✓[/] Successfully switched {monitor.Name} to {InputSource.GetName(inputValue)}");
+            AnsiConsole.MarkupLine(
+                $"[green]✓[/] Successfully switched {monitor.Name} to {InputSource.GetName(inputValue)}");
         }
 
         // Cleanup
