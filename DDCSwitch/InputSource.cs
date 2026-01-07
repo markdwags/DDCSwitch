@@ -1,30 +1,33 @@
 namespace DDCSwitch;
+
 /// <summary>
 /// Common VCP input source codes based on MCCS specification
 /// </summary>
 public static class InputSource
 {
     // VCP Code for Input Source Select
-    public const byte VCP_INPUT_SOURCE = 0x60;
+    public const byte VcpInputSource = 0x60;
+
     // Common input source values
-    public const uint Analog1 = 0x01;
-    public const uint Analog2 = 0x02;
-    public const uint DVI1 = 0x03;
-    public const uint DVI2 = 0x04;
-    public const uint CompositeVideo1 = 0x05;
-    public const uint CompositeVideo2 = 0x06;
-    public const uint SVideo1 = 0x07;
-    public const uint SVideo2 = 0x08;
-    public const uint Tuner1 = 0x09;
-    public const uint Tuner2 = 0x0A;
-    public const uint Tuner3 = 0x0B;
-    public const uint ComponentVideo1 = 0x0C;
-    public const uint ComponentVideo2 = 0x0D;
-    public const uint ComponentVideo3 = 0x0E;
-    public const uint DisplayPort1 = 0x0F;
-    public const uint DisplayPort2 = 0x10;
-    public const uint HDMI1 = 0x11;
-    public const uint HDMI2 = 0x12;
+    private const uint Analog1 = 0x01;
+    private const uint Analog2 = 0x02;
+    private const uint DVI1 = 0x03;
+    private const uint DVI2 = 0x04;
+    private const uint CompositeVideo1 = 0x05;
+    private const uint CompositeVideo2 = 0x06;
+    private const uint SVideo1 = 0x07;
+    private const uint SVideo2 = 0x08;
+    private const uint Tuner1 = 0x09;
+    private const uint Tuner2 = 0x0A;
+    private const uint Tuner3 = 0x0B;
+    private const uint ComponentVideo1 = 0x0C;
+    private const uint ComponentVideo2 = 0x0D;
+    private const uint ComponentVideo3 = 0x0E;
+    private const uint DisplayPort1 = 0x0F;
+    private const uint DisplayPort2 = 0x10;
+    private const uint HDMI1 = 0x11;
+    private const uint HDMI2 = 0x12;
+
     /// <summary>
     /// Get a friendly name for an input source code
     /// </summary>
@@ -53,6 +56,7 @@ public static class InputSource
             _ => $"Unknown (0x{code:X2})"
         };
     }
+
     /// <summary>
     /// Try to parse an input source name or code to a VCP value
     /// </summary>
@@ -64,10 +68,12 @@ public static class InputSource
         {
             return uint.TryParse(input[2..], System.Globalization.NumberStyles.HexNumber, null, out value);
         }
+
         if (uint.TryParse(input, out value))
         {
             return true;
         }
+
         // Try friendly name matching (case-insensitive)
         var normalized = input.ToLowerInvariant().Replace(" ", "").Replace("-", "").Replace("_", "");
         value = normalized switch
