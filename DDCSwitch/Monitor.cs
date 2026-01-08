@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.InteropServices;
 
 namespace DDCSwitch;
 
@@ -47,7 +48,42 @@ public class Monitor(int index, string name, string deviceName, bool isPrimary, 
     }
 
     /// <summary>
-    /// Attempts to read a VCP feature value from the monitor
+    /// Attempts to read a VCP feature value from the monitor with enhanced error detection
+    /// </summary>
+    /// <param name="vcpCode">VCP code to read (0x00-0xFF)</param>
+    /// <param name="currentValue">Current value of the VCP feature</param>
+    /// <param name="maxValue">Maximum value supported by the VCP feature</param>
+    /// <param name="errorCode">Win32 error code if operation fails</param>
+    /// <returns>True if the operation was successful</returns>
+    public bool TryGetVcpFeature(byte vcpCode, out uint currentValue, out uint maxValue, out int errorCode)
+    {
+        currentValue = 0;
+        maxValue = 0;
+        errorCode = 0;
+
+        if (_disposed || Handle == IntPtr.Zero)
+        {
+            errorCode = 0x00000006; // ERROR_INVALID_HANDLE
+            return false;
+        }
+
+        bool success = NativeMethods.GetVCPFeatureAndVCPFeatureReply(
+            Handle,
+            vcpCode,
+            out _,
+            out currentValue,
+            out maxValue);
+
+        if (!success)
+        {
+            errorCode = Marshal.GetLastWin32Error();
+        }
+
+        return success;
+    }
+
+    /// <summary>
+    /// Attempts to read a VCP feature value from the monitor (legacy method for backward compatibility)
     /// </summary>
     /// <param name="vcpCode">VCP code to read (0x00-0xFF)</param>
     /// <param name="currentValue">Current value of the VCP feature</param>
@@ -55,36 +91,45 @@ public class Monitor(int index, string name, string deviceName, bool isPrimary, 
     /// <returns>True if the operation was successful</returns>
     public bool TryGetVcpFeature(byte vcpCode, out uint currentValue, out uint maxValue)
     {
-        currentValue = 0;
-        maxValue = 0;
-
-        if (_disposed || Handle == IntPtr.Zero)
-        {
-            return false;
-        }
-
-        return NativeMethods.GetVCPFeatureAndVCPFeatureReply(
-            Handle,
-            vcpCode,
-            out _,
-            out currentValue,
-            out maxValue);
+        return TryGetVcpFeature(vcpCode, out currentValue, out maxValue, out _);
     }
 
     /// <summary>
-    /// Attempts to write a VCP feature value to the monitor
+    /// Attempts to write a VCP feature value to the monitor with enhanced error detection
+    /// </summary>
+    /// <param name="vcpCode">VCP code to write (0x00-0xFF)</param>
+    /// <param name="value">Value to set for the VCP feature</param>
+    /// <param name="errorCode">Win32 error code if operation fails</param>
+    /// <returns>True if the operation was successful</returns>
+    public bool TrySetVcpFeature(byte vcpCode, uint value, out int errorCode)
+    {
+        errorCode = 0;
+
+        if (_disposed || Handle == IntPtr.Zero)
+        {
+            errorCode = 0x00000006; // ERROR_INVALID_HANDLE
+            return false;
+        }
+
+        bool success = NativeMethods.SetVCPFeature(Handle, vcpCode, value);
+
+        if (!success)
+        {
+            errorCode = Marshal.GetLastWin32Error();
+        }
+
+        return success;
+    }
+
+    /// <summary>
+    /// Attempts to write a VCP feature value to the monitor (legacy method for backward compatibility)
     /// </summary>
     /// <param name="vcpCode">VCP code to write (0x00-0xFF)</param>
     /// <param name="value">Value to set for the VCP feature</param>
     /// <returns>True if the operation was successful</returns>
     public bool TrySetVcpFeature(byte vcpCode, uint value)
     {
-        if (_disposed || Handle == IntPtr.Zero)
-        {
-            return false;
-        }
-
-        return NativeMethods.SetVCPFeature(Handle, vcpCode, value);
+        return TrySetVcpFeature(vcpCode, value, out _);
     }
 
     /// <summary>

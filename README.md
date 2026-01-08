@@ -6,7 +6,7 @@
 [![.NET](https://img.shields.io/badge/.NET-10.0-512BD4)](https://dotnet.microsoft.com/)
 [![JSON Output](https://img.shields.io/badge/JSON-Output%20Support-green)](https://github.com/markdwags/DDCSwitch#json-output-for-automation)
 
-A Windows command-line utility to control monitor input sources via DDC/CI (Display Data Channel Command Interface). Switch between HDMI, DisplayPort, DVI, and VGA inputs without touching physical buttons.
+A Windows command-line utility to control monitor settings via DDC/CI (Display Data Channel Command Interface). Control input sources, brightness, contrast, and other VCP features without touching physical buttons.
 
 📚 **[Examples](EXAMPLES.md)** | 📝 **[Changelog](CHANGELOG.md)**
 
@@ -14,6 +14,9 @@ A Windows command-line utility to control monitor input sources via DDC/CI (Disp
 
 - 🖥️ **List all DDC/CI capable monitors** with their current input sources
 - 🔄 **Switch monitor inputs** programmatically (HDMI, DisplayPort, DVI, VGA, etc.)
+- 🔆 **Control brightness and contrast** with percentage values (0-100%)
+- 🎛️ **Raw VCP access** for advanced users to control any monitor feature
+- 🔍 **VCP scanning** to discover all supported monitor features
 - 🎯 **Simple CLI interface** perfect for scripts, shortcuts, and hotkeys
 - 📊 **JSON output support** - Machine-readable output for automation and integration
 - ⚡ **Fast and lightweight** - NativeAOT compiled for instant startup
@@ -65,19 +68,52 @@ Example output:
 ╰───────┴─────────────────────┴──────────────┴───────────────────────────┴────────╯
 ```
 
+#### Verbose Listing
+
+Add `--verbose` to include brightness and contrast information:
+
+```powershell
+DDCSwitch list --verbose
+```
+
+Example output:
+```
+╭───────┬─────────────────────┬──────────────┬───────────────────────────┬────────┬────────────┬──────────╮
+│ Index │ Monitor Name        │ Device       │ Current Input             │ Status │ Brightness │ Contrast │
+├───────┼─────────────────────┼──────────────┼───────────────────────────┼────────┼────────────┼──────────┤
+│ 0     │ Generic PnP Monitor │ \\.\DISPLAY2 │ HDMI1 (0x11)              │ OK     │ 75%        │ 80%      │
+│ 1*    │ VG270U P            │ \\.\DISPLAY1 │ DisplayPort1 (DP1) (0x0F) │ OK     │ N/A        │ N/A      │
+╰───────┴─────────────────────┴──────────────┴───────────────────────────┴────────┴────────────┴──────────╯
+```
+
 Add `--json` for machine-readable output (see [EXAMPLES.md](EXAMPLES.md) for automation examples).
 
-### Get Current Input
+### Get Current Settings
 
-Get the current input source for a specific monitor:
+Get all VCP features for a specific monitor:
 
 ```powershell
 DDCSwitch get 0
 ```
 
-Output: `Monitor: Generic PnP Monitor (\\.\DISPLAY2)` / `Current Input: HDMI1 (0x11)`
+This will scan and display all supported VCP features for monitor 0, showing their names, access types, current values, and maximum values.
 
-### Set Input Source
+Get a specific feature:
+
+```powershell
+# Get current input source
+DDCSwitch get 0 input
+
+# Get brightness as percentage
+DDCSwitch get 0 brightness
+
+# Get contrast as percentage  
+DDCSwitch get 0 contrast
+```
+
+Output: `Monitor: Generic PnP Monitor` / `Brightness: 75% (120/160)`
+
+### Set Monitor Settings
 
 Switch a monitor to a different input:
 
@@ -89,16 +125,59 @@ DDCSwitch set 0 HDMI1
 DDCSwitch set "LG ULTRAGEAR" HDMI2
 ```
 
-Output: `✓ Successfully switched Generic PnP Monitor to HDMI1`
+Set brightness or contrast with percentage values:
 
-### Supported Input Names
+```powershell
+# Set brightness to 75%
+DDCSwitch set 0 brightness 75%
 
+# Set contrast to 80%
+DDCSwitch set 0 contrast 80%
+```
+
+Output: `✓ Successfully set brightness to 75% (120/160)`
+
+### Raw VCP Access
+
+For advanced users, access any VCP feature by code:
+
+```powershell
+# Get raw VCP value (e.g., VCP code 0x10 for brightness)
+DDCSwitch get 0 0x10
+
+# Set raw VCP value
+DDCSwitch set 0 0x10 120
+```
+
+### VCP Feature Scanning
+
+Discover all supported VCP features on a monitor:
+
+```powershell
+DDCSwitch list --verbose
+```
+
+This scans all VCP codes (0x00-0xFF) and displays supported features with their current values, maximum values, and access types (read-only, write-only, read-write).
+
+### Supported Features
+
+#### Input Sources
 - **HDMI**: `HDMI1`, `HDMI2`
 - **DisplayPort**: `DP1`, `DP2`, `DisplayPort1`, `DisplayPort2`
 - **DVI**: `DVI1`, `DVI2`
 - **VGA/Analog**: `VGA1`, `VGA2`, `Analog1`, `Analog2`
 - **Other**: `SVideo1`, `SVideo2`, `Tuner1`, `ComponentVideo1`, etc.
 - **Custom codes**: Use hex values like `0x11` for manufacturer-specific inputs
+
+#### Common VCP Features
+- **Brightness**: `brightness` (VCP 0x10) - accepts percentage values (0-100%)
+- **Contrast**: `contrast` (VCP 0x12) - accepts percentage values (0-100%)
+- **Input Source**: `input` (VCP 0x60) - existing functionality maintained
+
+#### Raw VCP Codes
+- Any VCP code from `0x00` to `0xFF`
+- Values must be within the monitor's supported range
+- Use hex format: `0x10`, `0x12`, etc.
 
 ## Use Cases
 
@@ -110,13 +189,27 @@ DDCSwitch set 0 HDMI1
 DDCSwitch set 1 DP1
 ```
 
+**Control brightness and contrast:**
+```powershell
+DDCSwitch set 0 brightness 75%
+DDCSwitch set 0 contrast 80%
+DDCSwitch get 0 brightness
+```
+
+**Raw VCP access:**
+```powershell
+DDCSwitch get 0 0x10      # Get brightness (raw)
+DDCSwitch set 0 0x10 120  # Set brightness (raw value)
+```
+
 **Desktop shortcut:**
-Create a shortcut with target: `C:\Path\To\DDCSwitch.exe set 0 HDMI1`
+Create a shortcut with target: `C:\Path\To\DDCSwitch.exe set 0 brightness 50%`
 
 **AutoHotkey:**
 ```autohotkey
-^!h::Run, DDCSwitch.exe set 0 HDMI1  ; Ctrl+Alt+H for HDMI1
-^!d::Run, DDCSwitch.exe set 0 DP1    ; Ctrl+Alt+D for DisplayPort
+^!h::Run, DDCSwitch.exe set 0 HDMI1        ; Ctrl+Alt+H for HDMI1
+^!d::Run, DDCSwitch.exe set 0 DP1          ; Ctrl+Alt+D for DisplayPort
+^!b::Run, DDCSwitch.exe set 0 brightness 75%  ; Ctrl+Alt+B for 75% brightness
 ```
 
 ### JSON Output for Automation
@@ -171,10 +264,16 @@ If you need to verify DDC/CI values or troubleshoot monitor-specific issues, try
 
 ## Technical Details
 
-DDCSwitch uses the Windows DXVA2 API to communicate with monitors via DDC/CI protocol. It reads/writes VCP (Virtual Control Panel) feature 0x60 (Input Source) following the MCCS specification.
+DDCSwitch uses the Windows DXVA2 API to communicate with monitors via DDC/CI protocol. It reads/writes VCP (Virtual Control Panel) features following the MCCS specification.
 
-**Common VCP Input Codes:**
+**Common VCP Codes:**
+- `0x10` Brightness, `0x12` Contrast, `0x60` Input Source
 - `0x01` VGA, `0x03` DVI, `0x0F` DisplayPort 1, `0x10` DisplayPort 2, `0x11` HDMI 1, `0x12` HDMI 2
+
+**VCP Feature Types:**
+- **Read-Write**: Can get and set values (brightness, contrast, input)
+- **Read-Only**: Can only read current value (some monitor info)
+- **Write-Only**: Can only set values (some calibration features)
 
 **NativeAOT Compatible:** Uses source generators for JSON, `DllImport` for P/Invoke, and zero reflection for reliable AOT compilation.
 
