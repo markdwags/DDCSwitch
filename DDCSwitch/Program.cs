@@ -95,38 +95,14 @@ static class DDCSwitchProgram
         AnsiConsole.Write(new FigletText("DDCSwitch").Color(Color.Blue));
         AnsiConsole.MarkupLine($"[dim]Windows DDC/CI Monitor Input Switcher v{version}[/]\n");
 
-        var table = new Table()
-            .Border(TableBorder.Rounded)
-            .AddColumn("Command")
-            .AddColumn("Description")
-            .AddColumn("Example");
-
-        table.AddRow(
-            "[yellow]list[/] or [yellow]ls[/]",
-            "List all DDC/CI capable monitors",
-            "[dim]DDCSwitch list[/]");
-
-        table.AddRow(
-            "[yellow]get[/] <monitor>",
-            "Get current input source for a monitor",
-            "[dim]DDCSwitch get 0[/]");
-
-        table.AddRow(
-            "[yellow]set[/] <monitor> <input>",
-            "Set input source for a monitor",
-            "[dim]DDCSwitch set 0 HDMI1[/]");
-
-        table.AddRow(
-            "[yellow]version[/] or [yellow]-v[/]",
-            "Display version information",
-            "[dim]DDCSwitch version[/]");
-
-        AnsiConsole.Write(table);
-
-        AnsiConsole.MarkupLine("\n[bold]Monitor:[/] Monitor index (0, 1, 2...) or name pattern");
-        AnsiConsole.MarkupLine("[bold]Input:[/] Input name (HDMI1, HDMI2, DP1, DP2, DVI1, VGA1) or hex code (0x11)");
-        AnsiConsole.MarkupLine("\n[bold]Options:[/]");
-        AnsiConsole.MarkupLine("  [yellow]--json[/]    Output in JSON format");
+        AnsiConsole.MarkupLine("[yellow]Commands:[/]");
+        AnsiConsole.MarkupLine("  list - List all DDC/CI capable monitors");
+        AnsiConsole.MarkupLine("  get monitor feature - Get current value for a monitor feature");
+        AnsiConsole.MarkupLine("  set monitor feature value - Set value for a monitor feature");
+        AnsiConsole.MarkupLine("  version - Display version information");
+        
+        AnsiConsole.MarkupLine("\nSupported features: brightness, contrast, input, or VCP codes like 0x10");
+        AnsiConsole.MarkupLine("Use --json flag for JSON output");
 
         return 0;
     }
@@ -267,17 +243,35 @@ static class DDCSwitchProgram
 
     private static int GetCurrentInput(string[] args, bool jsonOutput)
     {
-        if (args.Length < 2)
+        if (args.Length < 3)
         {
             if (jsonOutput)
             {
-                var error = new ErrorResponse(false, "Monitor identifier required");
+                var error = new ErrorResponse(false, "Monitor identifier and feature required");
                 Console.WriteLine(JsonSerializer.Serialize(error, JsonContext.Default.ErrorResponse));
             }
             else
             {
-                AnsiConsole.MarkupLine("[red]Error:[/] Monitor identifier required.");
-                AnsiConsole.MarkupLine("Usage: [yellow]DDCSwitch get <monitor>[/]");
+                AnsiConsole.MarkupLine("[red]Error:[/] Monitor identifier and feature required.");
+                AnsiConsole.MarkupLine("Usage: [yellow]DDCSwitch get <monitor> <feature>[/]");
+            }
+
+            return 1;
+        }
+
+        string featureInput = args[2];
+        
+        if (!FeatureResolver.TryResolveFeature(featureInput, out VcpFeature? feature))
+        {
+            if (jsonOutput)
+            {
+                var error = new ErrorResponse(false, $"Invalid feature '{featureInput}'");
+                Console.WriteLine(JsonSerializer.Serialize(error, JsonContext.Default.ErrorResponse));
+            }
+            else
+            {
+                AnsiConsole.MarkupLine($"[red]Error:[/] Invalid feature '{featureInput}'.");
+                AnsiConsole.MarkupLine("Valid features: brightness, contrast, input, or VCP code (0x10, 0x12, etc.)");
             }
 
             return 1;
@@ -324,20 +318,23 @@ static class DDCSwitchProgram
             return 1;
         }
 
-        if (!monitor.TryGetInputSource(out uint current, out uint max))
+        // Use generic VCP method for all features
+        bool success = monitor.TryGetVcpFeature(feature!.Code, out uint current, out uint max);
+
+        if (!success)
         {
             if (jsonOutput)
             {
                 var monitorRef =
                     new MonitorReference(monitor.Index, monitor.Name, monitor.DeviceName, monitor.IsPrimary);
-                var error = new ErrorResponse(false, $"Failed to get input source from monitor '{monitor.Name}'",
+                var error = new ErrorResponse(false, $"Failed to get {feature.Name} from monitor '{monitor.Name}'",
                     monitorRef);
                 Console.WriteLine(JsonSerializer.Serialize(error, JsonContext.Default.ErrorResponse));
             }
             else
             {
-                AnsiConsole.MarkupLine($"[red]Error:[/] Failed to get input source from monitor '{monitor.Name}'.");
-                AnsiConsole.MarkupLine("The monitor may not support DDC/CI or requires administrator privileges.");
+                AnsiConsole.MarkupLine($"[red]Error:[/] Failed to get {feature.Name} from monitor '{monitor.Name}'.");
+                AnsiConsole.MarkupLine("The monitor may not support this feature or requires administrator privileges.");
             }
 
             // Cleanup
@@ -352,13 +349,42 @@ static class DDCSwitchProgram
         if (jsonOutput)
         {
             var monitorRef = new MonitorReference(monitor.Index, monitor.Name, monitor.DeviceName, monitor.IsPrimary);
-            var result = new GetInputResponse(true, monitorRef, InputSource.GetName(current), $"0x{current:X2}", max);
-            Console.WriteLine(JsonSerializer.Serialize(result, JsonContext.Default.GetInputResponse));
+            
+            if (feature.Code == InputSource.VcpInputSource)
+            {
+                // Use generic VCP response for input as well
+                uint? percentageValue = feature.SupportsPercentage ? FeatureResolver.ConvertRawToPercentage(current, max) : null;
+                var result = new GetVcpResponse(true, monitorRef, feature.Name, current, max, percentageValue);
+                Console.WriteLine(JsonSerializer.Serialize(result, JsonContext.Default.GetVcpResponse));
+            }
+            else
+            {
+                // Use generic VCP response for other features
+                uint? percentageValue = feature.SupportsPercentage ? FeatureResolver.ConvertRawToPercentage(current, max) : null;
+                var result = new GetVcpResponse(true, monitorRef, feature.Name, current, max, percentageValue);
+                Console.WriteLine(JsonSerializer.Serialize(result, JsonContext.Default.GetVcpResponse));
+            }
         }
         else
         {
             AnsiConsole.MarkupLine($"[green]Monitor:[/] {monitor.Name} ({monitor.DeviceName})");
-            AnsiConsole.MarkupLine($"[green]Current Input:[/] {InputSource.GetName(current)} (0x{current:X2})");
+            
+            if (feature.Code == InputSource.VcpInputSource)
+            {
+                // Display input with name resolution
+                AnsiConsole.MarkupLine($"[green]Current {feature.Name}:[/] {InputSource.GetName(current)} (0x{current:X2})");
+            }
+            else if (feature.SupportsPercentage)
+            {
+                // Display percentage for brightness/contrast
+                uint percentage = FeatureResolver.ConvertRawToPercentage(current, max);
+                AnsiConsole.MarkupLine($"[green]Current {feature.Name}:[/] {percentage}% (raw: {current}/{max})");
+            }
+            else
+            {
+                // Display raw values for unknown VCP codes
+                AnsiConsole.MarkupLine($"[green]Current {feature.Name}:[/] {current} (max: {max})");
+            }
         }
 
         // Cleanup
@@ -372,34 +398,96 @@ static class DDCSwitchProgram
 
     private static int SetInput(string[] args, bool jsonOutput)
     {
-        if (args.Length < 3)
+        // Require 4 arguments: set <monitor> <feature> <value>
+        if (args.Length < 4)
         {
             if (jsonOutput)
             {
-                var error = new ErrorResponse(false, "Monitor and input source required");
+                var error = new ErrorResponse(false, "Monitor, feature, and value required");
                 Console.WriteLine(JsonSerializer.Serialize(error, JsonContext.Default.ErrorResponse));
             }
             else
             {
-                AnsiConsole.MarkupLine("[red]Error:[/] Monitor and input source required.");
-                AnsiConsole.MarkupLine("Usage: [yellow]DDCSwitch set <monitor> <input>[/]");
+                AnsiConsole.MarkupLine("[red]Error:[/] Monitor, feature, and value required.");
+                AnsiConsole.MarkupLine("Usage: [yellow]DDCSwitch set <monitor> <feature> <value>[/]");
             }
 
             return 1;
         }
 
-        if (!InputSource.TryParse(args[2], out uint inputValue))
+        string featureInput = args[2];
+        string valueInput = args[3];
+
+        if (!FeatureResolver.TryResolveFeature(featureInput, out VcpFeature? feature))
         {
             if (jsonOutput)
             {
-                var error = new ErrorResponse(false, $"Invalid input source '{args[2]}'");
+                var error = new ErrorResponse(false, $"Invalid feature '{featureInput}'");
                 Console.WriteLine(JsonSerializer.Serialize(error, JsonContext.Default.ErrorResponse));
             }
             else
             {
-                AnsiConsole.MarkupLine($"[red]Error:[/] Invalid input source '{args[2]}'.");
-                AnsiConsole.MarkupLine(
-                    "Valid inputs: HDMI1, HDMI2, DP1, DP2, DVI1, DVI2, VGA1, VGA2, or hex code (0x11)");
+                AnsiConsole.MarkupLine($"[red]Error:[/] Invalid feature '{featureInput}'.");
+                AnsiConsole.MarkupLine("Valid features: brightness, contrast, input, or VCP code (0x10, 0x12, etc.)");
+            }
+
+            return 1;
+        }
+
+        // Parse the value based on feature type
+        uint setValue;
+        uint? percentageValue = null;
+        
+        if (feature!.Code == InputSource.VcpInputSource)
+        {
+            // Use existing input source parsing for input feature
+            if (!InputSource.TryParse(valueInput, out setValue))
+            {
+                if (jsonOutput)
+                {
+                    var error = new ErrorResponse(false, $"Invalid input source '{valueInput}'");
+                    Console.WriteLine(JsonSerializer.Serialize(error, JsonContext.Default.ErrorResponse));
+                }
+                else
+                {
+                    AnsiConsole.MarkupLine($"[red]Error:[/] Invalid input source '{valueInput}'.");
+                    AnsiConsole.MarkupLine(
+                        "Valid inputs: HDMI1, HDMI2, DP1, DP2, DVI1, DVI2, VGA1, VGA2, or hex code (0x11)");
+                }
+
+                return 1;
+            }
+        }
+        else if (feature.SupportsPercentage && FeatureResolver.TryParsePercentage(valueInput, out uint percentage))
+        {
+            // Parse as percentage for brightness/contrast
+            percentageValue = percentage;
+            // We'll convert to raw value after getting monitor's max value
+            setValue = 0; // Placeholder
+        }
+        else if (uint.TryParse(valueInput, out uint rawValue))
+        {
+            // Parse as raw value - we'll validate range after getting monitor's max value
+            setValue = rawValue;
+        }
+        else
+        {
+            if (jsonOutput)
+            {
+                var error = new ErrorResponse(false, $"Invalid value '{valueInput}' for feature '{feature.Name}'");
+                Console.WriteLine(JsonSerializer.Serialize(error, JsonContext.Default.ErrorResponse));
+            }
+            else
+            {
+                AnsiConsole.MarkupLine($"[red]Error:[/] Invalid value '{valueInput}' for feature '{feature.Name}'.");
+                if (feature.SupportsPercentage)
+                {
+                    AnsiConsole.MarkupLine("Valid values: 0-100% or raw numeric value");
+                }
+                else
+                {
+                    AnsiConsole.MarkupLine("Valid values: numeric value within monitor's supported range");
+                }
             }
 
             return 1;
@@ -446,34 +534,100 @@ static class DDCSwitchProgram
             return 1;
         }
 
+        // If we have a percentage value, we need to get the max value first to convert it
+        // For raw values, we also need to validate they're within the monitor's supported range
+        if (percentageValue.HasValue || (!feature!.SupportsPercentage && feature.Code != InputSource.VcpInputSource))
+        {
+            if (monitor.TryGetVcpFeature(feature.Code, out uint currentValue, out uint maxValue))
+            {
+                if (percentageValue.HasValue)
+                {
+                    // Convert percentage to raw value
+                    setValue = FeatureResolver.ConvertPercentageToRaw(percentageValue.Value, maxValue);
+                }
+                else if (feature.Code != InputSource.VcpInputSource)
+                {
+                    // Validate raw value is within supported range
+                    if (setValue > maxValue)
+                    {
+                        if (jsonOutput)
+                        {
+                            var monitorRef = new MonitorReference(monitor.Index, monitor.Name, monitor.DeviceName, monitor.IsPrimary);
+                            var error = new ErrorResponse(false, $"Value {setValue} is out of range for {feature.Name}. Valid range: 0-{maxValue}", monitorRef);
+                            Console.WriteLine(JsonSerializer.Serialize(error, JsonContext.Default.ErrorResponse));
+                        }
+                        else
+                        {
+                            AnsiConsole.MarkupLine($"[red]Error:[/] Value {setValue} is out of range for {feature.Name}.");
+                            AnsiConsole.MarkupLine($"Valid range: 0-{maxValue}");
+                        }
+
+                        // Cleanup
+                        foreach (var m in monitors)
+                        {
+                            m.Dispose();
+                        }
+
+                        return 1;
+                    }
+                }
+            }
+            else
+            {
+                if (jsonOutput)
+                {
+                    var monitorRef = new MonitorReference(monitor.Index, monitor.Name, monitor.DeviceName, monitor.IsPrimary);
+                    var error = new ErrorResponse(false, $"Failed to read current {feature.Name} from monitor '{monitor.Name}' to validate range", monitorRef);
+                    Console.WriteLine(JsonSerializer.Serialize(error, JsonContext.Default.ErrorResponse));
+                }
+                else
+                {
+                    AnsiConsole.MarkupLine($"[red]Error:[/] Failed to read current {feature.Name} from monitor '{monitor.Name}' to validate range.");
+                    AnsiConsole.MarkupLine("The monitor may not support this feature or requires administrator privileges.");
+                }
+
+                // Cleanup
+                foreach (var m in monitors)
+                {
+                    m.Dispose();
+                }
+
+                return 1;
+            }
+        }
+
         bool success = false;
         string? errorMsg = null;
 
         if (!jsonOutput)
         {
+            string displayValue = percentageValue.HasValue ? $"{percentageValue}%" : setValue.ToString();
             AnsiConsole.Status()
-                .Start($"Switching {monitor.Name} to {InputSource.GetName(inputValue)}...", ctx =>
+                .Start($"Setting {monitor.Name} {feature.Name} to {displayValue}...", ctx =>
                 {
                     ctx.Spinner(Spinner.Known.Dots);
 
-                    if (!monitor.TrySetInputSource(inputValue))
+                    if (!monitor.TrySetVcpFeature(feature!.Code, setValue))
                     {
-                        errorMsg =
-                            $"Failed to set input source on monitor '{monitor.Name}'. The monitor may not support this input or requires administrator privileges.";
+                        errorMsg = $"Failed to set {feature.Name} on monitor '{monitor.Name}'. The monitor may not support this feature or requires administrator privileges.";
                     }
                     else
                     {
                         success = true;
-                        // Give the monitor a moment to switch
+                    }
+
+                    if (success)
+                    {
+                        // Give the monitor a moment to apply the change
                         Thread.Sleep(500);
                     }
                 });
         }
         else
         {
-            if (!monitor.TrySetInputSource(inputValue))
+            if (!monitor.TrySetVcpFeature(feature!.Code, setValue))
             {
-                errorMsg = $"Failed to set input source on monitor '{monitor.Name}'";
+                errorMsg = $"Failed to set {feature.Name} on monitor '{monitor.Name}'";
             }
             else
             {
@@ -508,13 +662,28 @@ static class DDCSwitchProgram
         if (jsonOutput)
         {
             var monitorRef = new MonitorReference(monitor.Index, monitor.Name, monitor.DeviceName, monitor.IsPrimary);
-            var result = new SetInputResponse(true, monitorRef, InputSource.GetName(inputValue), $"0x{inputValue:X2}");
-            Console.WriteLine(JsonSerializer.Serialize(result, JsonContext.Default.SetInputResponse));
+            
+            // Use generic VCP response for all features
+            var result = new SetVcpResponse(true, monitorRef, feature!.Name, setValue, percentageValue);
+            Console.WriteLine(JsonSerializer.Serialize(result, JsonContext.Default.SetVcpResponse));
         }
         else
         {
-            AnsiConsole.MarkupLine(
-                $"[green]✓[/] Successfully switched {monitor.Name} to {InputSource.GetName(inputValue)}");
+            if (feature!.Code == InputSource.VcpInputSource)
+            {
+                // Display input with name resolution
+                AnsiConsole.MarkupLine($"[green]✓[/] Successfully set {monitor.Name} {feature.Name} to {InputSource.GetName(setValue)}");
+            }
+            else if (percentageValue.HasValue)
+            {
+                // Display percentage for brightness/contrast
+                AnsiConsole.MarkupLine($"[green]✓[/] Successfully set {monitor.Name} {feature.Name} to {percentageValue}%");
+            }
+            else
+            {
+                // Display raw value for unknown VCP codes
+                AnsiConsole.MarkupLine($"[green]✓[/] Successfully set {monitor.Name} {feature.Name} to {setValue}");
+            }
         }
 
         // Cleanup

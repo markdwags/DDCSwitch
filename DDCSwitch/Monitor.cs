@@ -1,3 +1,7 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+
 namespace DDCSwitch;
 
 /// <summary>
@@ -40,6 +44,116 @@ public class Monitor(int index, string name, string deviceName, bool isPrimary, 
         }
 
         return NativeMethods.SetVCPFeature(Handle, InputSource.VcpInputSource, value);
+    }
+
+    /// <summary>
+    /// Attempts to read a VCP feature value from the monitor
+    /// </summary>
+    /// <param name="vcpCode">VCP code to read (0x00-0xFF)</param>
+    /// <param name="currentValue">Current value of the VCP feature</param>
+    /// <param name="maxValue">Maximum value supported by the VCP feature</param>
+    /// <returns>True if the operation was successful</returns>
+    public bool TryGetVcpFeature(byte vcpCode, out uint currentValue, out uint maxValue)
+    {
+        currentValue = 0;
+        maxValue = 0;
+
+        if (_disposed || Handle == IntPtr.Zero)
+        {
+            return false;
+        }
+
+        return NativeMethods.GetVCPFeatureAndVCPFeatureReply(
+            Handle,
+            vcpCode,
+            out _,
+            out currentValue,
+            out maxValue);
+    }
+
+    /// <summary>
+    /// Attempts to write a VCP feature value to the monitor
+    /// </summary>
+    /// <param name="vcpCode">VCP code to write (0x00-0xFF)</param>
+    /// <param name="value">Value to set for the VCP feature</param>
+    /// <returns>True if the operation was successful</returns>
+    public bool TrySetVcpFeature(byte vcpCode, uint value)
+    {
+        if (_disposed || Handle == IntPtr.Zero)
+        {
+            return false;
+        }
+
+        return NativeMethods.SetVCPFeature(Handle, vcpCode, value);
+    }
+
+    /// <summary>
+    /// Scans all VCP codes (0x00-0xFF) to discover supported features
+    /// </summary>
+    /// <returns>Dictionary mapping VCP codes to their feature information</returns>
+    public Dictionary<byte, VcpFeatureInfo> ScanVcpFeatures()
+    {
+        var features = new Dictionary<byte, VcpFeatureInfo>();
+
+        if (_disposed || Handle == IntPtr.Zero)
+        {
+            return features;
+        }
+
+        // Get predefined features for name lookup
+        var predefinedFeatures = FeatureResolver.GetPredefinedFeatures()
+            .ToDictionary(f => f.Code, f => f);
+
+        // Scan all possible VCP codes (0x00 to 0xFF)
+        for (int code = 0; code <= 255; code++)
+        {
+            byte vcpCode = (byte)code;
+            
+            if (TryGetVcpFeature(vcpCode, out uint currentValue, out uint maxValue))
+            {
+                // Feature is supported - determine name and type
+                string name;
+                VcpFeatureType type;
+
+                if (predefinedFeatures.TryGetValue(vcpCode, out VcpFeature? predefined))
+                {
+                    name = predefined.Name;
+                    type = predefined.Type;
+                }
+                else
+                {
+                    name = $"VCP_{vcpCode:X2}";
+                    type = VcpFeatureType.ReadWrite; // Assume read-write for unknown codes
+                }
+
+                features[vcpCode] = new VcpFeatureInfo(
+                    vcpCode,
+                    name,
+                    type,
+                    currentValue,
+                    maxValue,
+                    true
+                );
+            }
+            else
+            {
+                // Feature is not supported - still add entry for completeness
+                string name = predefinedFeatures.TryGetValue(vcpCode, out VcpFeature? predefined) 
+                    ? predefined.Name 
+                    : $"VCP_{vcpCode:X2}";
+
+                features[vcpCode] = new VcpFeatureInfo(
+                    vcpCode,
+                    name,
+                    VcpFeatureType.ReadWrite,
+                    0,
+                    0,
+                    false
+                );
+            }
+        }
+
+        return features;
     }
 
     public void Dispose()

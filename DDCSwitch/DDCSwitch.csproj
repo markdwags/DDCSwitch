@@ -19,7 +19,7 @@
             <ChangelogPath>$(MSBuildProjectDirectory)\..\CHANGELOG.md</ChangelogPath>
         </PropertyGroup>
         <ReadLinesFromFile File="$(ChangelogPath)" Condition="Exists('$(ChangelogPath)')">
-            <Output TaskParameter="Lines" ItemName="ChangelogLines"/>
+            <Output TaskParameter="Lines" ItemName="ChangelogLines" />
         </ReadLinesFromFile>
         <PropertyGroup>
             <ChangelogContent>@(ChangelogLines, '%0A')</ChangelogContent>
@@ -33,7 +33,7 @@
             <FileVersion>$(Version)</FileVersion>
             <InformationalVersion>$(Version)</InformationalVersion>
         </PropertyGroup>
-        <Message Text="Building DDCSwitch version: $(Version)" Importance="high"/>
+        <Message Text="Building DDCSwitch version: $(Version)" Importance="high" />
     </Target>
 
     <ItemGroup>
